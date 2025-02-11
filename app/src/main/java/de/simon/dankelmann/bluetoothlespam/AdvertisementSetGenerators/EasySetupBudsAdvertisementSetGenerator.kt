@@ -4,6 +4,7 @@ import android.bluetooth.le.AdvertisingSetParameters
 import android.util.Log
 import de.simon.dankelmann.bluetoothlespam.Callbacks.GenericAdvertisingCallback
 import de.simon.dankelmann.bluetoothlespam.Callbacks.GenericAdvertisingSetCallback
+import de.simon.dankelmann.bluetoothlespam.Constants.Constants
 import de.simon.dankelmann.bluetoothlespam.Enums.AdvertiseMode
 import de.simon.dankelmann.bluetoothlespam.Enums.AdvertisementSetRange
 import de.simon.dankelmann.bluetoothlespam.Enums.AdvertisementSetType
@@ -13,6 +14,7 @@ import de.simon.dankelmann.bluetoothlespam.Enums.SecondaryPhy
 import de.simon.dankelmann.bluetoothlespam.Enums.TxPowerLevel
 import de.simon.dankelmann.bluetoothlespam.Helpers.StringHelpers
 import de.simon.dankelmann.bluetoothlespam.Helpers.StringHelpers.Companion.toHexString
+import de.simon.dankelmann.bluetoothlespam.Models.AdvertiseData
 import de.simon.dankelmann.bluetoothlespam.Models.AdvertisementSet
 import de.simon.dankelmann.bluetoothlespam.Models.ManufacturerSpecificData
 
@@ -21,10 +23,12 @@ class EasySetupBudsAdvertisementSetGenerator:IAdvertisementSetGenerator{
     // Device Id's taken from here:
     // https://github.com/Flipper-XFW/Xtreme-Firmware/blob/dev/applications/external/ble_spam/protocols/easysetup.c
 
-    private val _manufacturerId = 117 // 0x75 == 117 = Samsung
+    // Logic also from here:
+    // https://github.com/tutozz/ble-spam-android/blob/main/app/src/main/java/com/tutozz/blespam/EasySetupSpam.java
 
+    private val _manufacturerId = Constants.MANUFACTURER_ID_SAMSUNG
     private val prependedBudsBytes = StringHelpers.decodeHex("42098102141503210109")
-    private val appendedBudsBytes = StringHelpers.decodeHex("063C948E00000000C70016FF75") // +16FF75
+    private val appendedBudsBytes = StringHelpers.decodeHex("063C948E00000000C700") // +16FF75
 
     //42098102941503210188 5317012A 063CE7EB000000001D00
     //private val prependedBudsBytes = StringHelpers.decodeHex("42098102941503210188")
@@ -53,11 +57,13 @@ class EasySetupBudsAdvertisementSetGenerator:IAdvertisementSetGenerator{
         "011716" to "Sleek Black Buds2",
     )
 
-    override fun getAdvertisementSets():List<AdvertisementSet> {
+    override fun getAdvertisementSets(inputData: Map<String, String>?): List<AdvertisementSet> {
         var advertisementSets:MutableList<AdvertisementSet> = mutableListOf()
 
+        val data = inputData ?: _genuineBudsIds
+
         // BUDS
-        _genuineBudsIds.map {
+        data.map {
             var advertisementSet:AdvertisementSet = AdvertisementSet()
             advertisementSet.target = AdvertisementTarget.ADVERTISEMENT_TARGET_SAMSUNG
             advertisementSet.type = AdvertisementSetType.ADVERTISEMENT_TYPE_EASY_SETUP_BUDS
@@ -82,19 +88,25 @@ class EasySetupBudsAdvertisementSetGenerator:IAdvertisementSetGenerator{
             val manufacturerSpecificData = ManufacturerSpecificData()
             manufacturerSpecificData.manufacturerId = _manufacturerId
 
-            var deviceBytes = StringHelpers.decodeHex(it.key)
-            var payload = byteArrayOf(deviceBytes[0], deviceBytes[1], 0x01, deviceBytes[2])
-
+            //var deviceBytes = StringHelpers.decodeHex(it.key)
+            //var payload = byteArrayOf(deviceBytes[0], deviceBytes[1], 0x01, deviceBytes[2])
+            var payload = StringHelpers.decodeHex(it.key.substring(0,4) + "01" + it.key.substring(4))
             var fullPayload = prependedBudsBytes.plus(payload).plus(appendedBudsBytes)
 
             manufacturerSpecificData.manufacturerSpecificData = fullPayload
-            Log.d("EASY SETUP", "Full Payload(${fullPayload.size}): " + fullPayload.toHexString())
+            //Log.d("EASY SETUP", "Full Payload(${fullPayload.size}): " + fullPayload.toHexString())
 
             advertisementSet.advertiseData.manufacturerData.add(manufacturerSpecificData)
             advertisementSet.advertiseData.includeTxPower = false
 
             // Scan Response
-            //advertisementSet.scanResponse.includeTxPower = true
+            advertisementSet.scanResponse = AdvertiseData()
+            advertisementSet.scanResponse!!.includeDeviceName = false
+            val scanResponseManufacturerSpecificData = ManufacturerSpecificData()
+            scanResponseManufacturerSpecificData.manufacturerId = _manufacturerId
+            scanResponseManufacturerSpecificData.manufacturerSpecificData = StringHelpers.decodeHex("0000000000000000000000000000")
+            advertisementSet.scanResponse!!.manufacturerData.add(scanResponseManufacturerSpecificData)
+
 
             // General Data
             advertisementSet.title = it.value
