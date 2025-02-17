@@ -1,7 +1,6 @@
 package de.simon.dankelmann.bluetoothlespam
 
 import android.Manifest
-import android.app.Dialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Context
@@ -14,42 +13,34 @@ import android.text.Spannable
 import android.text.SpannableString
 import android.text.style.ForegroundColorSpan
 import android.util.Log
+import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
-import android.view.Window
-import android.widget.Button
+import android.view.View
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 import androidx.core.content.ContextCompat
-import androidx.drawerlayout.widget.DrawerLayout
-import androidx.navigation.Navigation.findNavController
 import androidx.navigation.findNavController
 import androidx.navigation.ui.AppBarConfiguration
-import androidx.navigation.ui.NavigationUI
 import androidx.navigation.ui.NavigationUI.onNavDestinationSelected
 import androidx.navigation.ui.navigateUp
 import androidx.navigation.ui.setupActionBarWithNavController
 import androidx.navigation.ui.setupWithNavController
 import androidx.preference.PreferenceManager
-import com.google.android.material.navigation.NavigationView
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import de.simon.dankelmann.bluetoothlespam.AppContext.AppContext
 import de.simon.dankelmann.bluetoothlespam.Constants.Constants
-import de.simon.dankelmann.bluetoothlespam.Database.AppDatabase
 import de.simon.dankelmann.bluetoothlespam.Enums.TxPowerLevel
+import de.simon.dankelmann.bluetoothlespam.Enums.toStringId
 import de.simon.dankelmann.bluetoothlespam.Helpers.BluetoothHelpers
-import de.simon.dankelmann.bluetoothlespam.Helpers.DatabaseHelpers
 import de.simon.dankelmann.bluetoothlespam.Helpers.QueueHandlerHelpers
-import de.simon.dankelmann.bluetoothlespam.Helpers.StringHelpers
-import de.simon.dankelmann.bluetoothlespam.Helpers.StringHelpers.Companion.toHexString
 import de.simon.dankelmann.bluetoothlespam.PermissionCheck.PermissionCheck
 import de.simon.dankelmann.bluetoothlespam.databinding.ActivityMainBinding
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import java.lang.Exception
+import de.simon.dankelmann.bluetoothlespam.ui.setupEdgeToEdge
 
 
 class MainActivity : AppCompatActivity() {
@@ -57,65 +48,79 @@ class MainActivity : AppCompatActivity() {
     private lateinit var appBarConfiguration: AppBarConfiguration
     private lateinit var binding: ActivityMainBinding
     private val _logTag = "MainActivity"
-    private lateinit var sharedPreferenceChangedListener:OnSharedPreferenceChangeListener
+    private lateinit var sharedPreferenceChangedListener: OnSharedPreferenceChangeListener
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // needs to be before setContentView
+        enableEdgeToEdge()
+
         // Initialize AppContext, Activity, Advertisement Service and QueHandler
-        AppContext.setContext(this)
-        AppContext.setActivity(this)
+        AppContext.setContext(applicationContext)
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Custom toolbar
-        val toolbar = findViewById<Toolbar>(R.id.customToolbar)
-        setSupportActionBar(toolbar)
+        setupEdgeToEdge(binding.appBar, bottom = false)
+
+        setSupportActionBar(binding.toolbar)
+        supportActionBar?.setDisplayShowTitleEnabled(false)
 
         // Listen to Preference changes
-        var prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
 
-        sharedPreferenceChangedListener = OnSharedPreferenceChangeListener { sharedPreferences, key ->
-            run {
-                var legacyAdvertisingKey = AppContext.getActivity().resources.getString(R.string.preference_key_use_legacy_advertising)
-                if (key == legacyAdvertisingKey) {
-                    val advertisementService = BluetoothHelpers.getAdvertisementService()
-                    AppContext.setAdvertisementService(advertisementService)
-                    AppContext.getAdvertisementSetQueueHandler().setAdvertisementService(advertisementService)
-                }
+        sharedPreferenceChangedListener =
+            OnSharedPreferenceChangeListener { sharedPreferences, key ->
+                run {
+                    var legacyAdvertisingKey =
+                        resources.getString(R.string.preference_key_use_legacy_advertising)
+                    if (key == legacyAdvertisingKey) {
+                        val advertisementService = BluetoothHelpers.getAdvertisementService(this)
+                        AppContext.setAdvertisementService(advertisementService)
+                        AppContext.getAdvertisementSetQueueHandler()
+                            .setAdvertisementService(advertisementService)
+                    }
 
-                var intervalKey = AppContext.getActivity().resources.getString(R.string.preference_key_interval_advertising_queue_handler)
-                if (key == intervalKey) {
-                    var newInterval = QueueHandlerHelpers.getInterval()
-                    Log.d(_logTag, "Setting new Interval: $newInterval")
-                    AppContext.getAdvertisementSetQueueHandler().setInterval(newInterval)
+                    var intervalKey =
+                        resources.getString(R.string.preference_key_interval_advertising_queue_handler)
+                    if (key == intervalKey) {
+                        val newInterval = QueueHandlerHelpers.getInterval(this)
+                        Log.d(_logTag, "Setting new Interval: $newInterval")
+                        AppContext.getAdvertisementSetQueueHandler().setInterval(newInterval)
+                    }
                 }
             }
-        }
 
-        prefs.registerOnSharedPreferenceChangeListener(sharedPreferenceChangedListener);
+        prefs.registerOnSharedPreferenceChangeListener(sharedPreferenceChangedListener)
 
-        val drawerLayout: DrawerLayout = binding.drawerLayout
-        val navView: NavigationView = binding.navView
-        val navController = findNavController(R.id.nav_host_fragment_content_main)
-        // Passing each menu ID as a set of Ids because each
-        // menu should be considered as top level destinations.
+        setupNavController()
+    }
+
+    fun setupNavController() {
+        val navController = findNavController(R.id.nav_host_fragment)
+
         appBarConfiguration = AppBarConfiguration(
-            setOf(
+            topLevelDestinationIds = setOf(
                 R.id.nav_start,
-                /*
-                R.id.nav_fast_pairing,
-                R.id.nav_swift_pair,
-                R.id.nav_continuity_action_modals,
-                R.id.nav_continuity_device_popups,
-                R.id.nav_kitchen_sink*/
-            ), drawerLayout
+                R.id.nav_advertisement_collection,
+                R.id.nav_spam_detector,
+            ),
         )
 
         setupActionBarWithNavController(navController, appBarConfiguration)
-        navView.setupWithNavController(navController)
+        binding.bottomNav.setupWithNavController(navController)
 
+        navController.addOnDestinationChangedListener { _, destination, _ ->
+            when (destination.id) {
+                R.id.nav_start,
+                R.id.nav_advertisement_collection,
+                R.id.nav_spam_detector
+                    -> binding.bottomNav.visibility = View.VISIBLE
+
+                else -> binding.bottomNav.visibility = View.GONE
+            }
+        }
     }
 
     private val bluetoothAdapter: BluetoothAdapter by lazy {
@@ -137,30 +142,33 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-    }
-
     private fun promptEnableBluetooth() {
         if (!bluetoothAdapter.isEnabled) {
             val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-            if(PermissionCheck.checkPermission(Manifest.permission.BLUETOOTH_CONNECT, this)){
+            if (PermissionCheck.checkPermission(Manifest.permission.BLUETOOTH_CONNECT, this)) {
                 startActivityForResult(enableBtIntent, Constants.REQUEST_CODE_ENABLE_BLUETOOTH)
             }
         }
     }
 
-    override fun onPrepareOptionsMenu(menu: Menu?): Boolean
-    {
-        val menuItems = listOf<MenuItem?>(menu?.findItem(R.id.nav_preferences), menu?.findItem(R.id.nav_set_tx_power))
+    override fun onPrepareOptionsMenu(menu: Menu?): Boolean {
+        val menuItems = listOf<MenuItem?>(
+            menu?.findItem(R.id.nav_preferences),
+            menu?.findItem(R.id.nav_set_tx_power)
+        )
 
         menuItems.forEach { menuItem ->
             val actionSettingsMenuItem = menuItem
             val title = actionSettingsMenuItem?.title.toString()
             val spannable = SpannableString(title)
 
-            val textColor = resources.getColor(R.color.text_color, AppContext.getContext().theme)
-            spannable.setSpan(ForegroundColorSpan(textColor), 0, spannable.length, Spannable.SPAN_INCLUSIVE_INCLUSIVE)
+            val textColor = resources.getColor(R.color.text_color, theme)
+            spannable.setSpan(
+                ForegroundColorSpan(textColor),
+                0,
+                spannable.length,
+                Spannable.SPAN_INCLUSIVE_INCLUSIVE
+            )
             actionSettingsMenuItem?.title = spannable
         }
 
@@ -174,14 +182,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onSupportNavigateUp(): Boolean {
-        val navController = findNavController(R.id.nav_host_fragment_content_main)
+        val navController = findNavController(R.id.nav_host_fragment)
         return navController.navigateUp(appBarConfiguration) || super.onSupportNavigateUp()
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        when(item.itemId) {
+        when (item.itemId) {
             R.id.nav_preferences -> {
-                val navController = findNavController(R.id.nav_host_fragment_content_main)
+                val navController = findNavController(R.id.nav_host_fragment)
                 onNavDestinationSelected(item, navController)
             }
 
@@ -193,80 +201,54 @@ class MainActivity : AppCompatActivity() {
         return super.onOptionsItemSelected(item)
     }
 
-    fun showSetTxPowerDialog(){
-
-        if(AppContext.getAdvertisementService() != null){
-
-            val dialog = Dialog(this)
-            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-            dialog.setCancelable(false)
-            dialog.setContentView(R.layout.dialog_set_tx_power)
-
-            val seekBar:SeekBar = dialog.findViewById(R.id.setTxPowerDialogSeekbar)
-            val seekBarLabel:TextView = dialog.findViewById(R.id.setTxPowerDialogTxPowerTextView)
-
-            // Set Current TxPowerLevel
-            val currentTxPowerLevel = AppContext.getAdvertisementService().getTxPowerLevel()
-
-            val currentProgress = when(currentTxPowerLevel){
-                TxPowerLevel.TX_POWER_HIGH -> 3
-                TxPowerLevel.TX_POWER_MEDIUM -> 2
-                TxPowerLevel.TX_POWER_LOW -> 1
-                TxPowerLevel.TX_POWER_ULTRA_LOW -> 0
-            }
-
-            val currentLabel = when(currentTxPowerLevel){
-                TxPowerLevel.TX_POWER_HIGH -> "High"
-                TxPowerLevel.TX_POWER_MEDIUM -> "Medium"
-                TxPowerLevel.TX_POWER_LOW -> "Low"
-                TxPowerLevel.TX_POWER_ULTRA_LOW -> "Ultra Low"
-            }
-
-            seekBar.progress = currentProgress
-            seekBarLabel.text = currentLabel
-
-            seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener{
-                override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
-
-                    val newTxPowerLevel = when(progress){
-                        3 -> TxPowerLevel.TX_POWER_HIGH
-                        2 -> TxPowerLevel.TX_POWER_MEDIUM
-                        1 -> TxPowerLevel.TX_POWER_LOW
-                        0 -> TxPowerLevel.TX_POWER_ULTRA_LOW
-                        else -> TxPowerLevel.TX_POWER_HIGH
-                    }
-
-                    val newTxPowerLabel = when(progress){
-                        3 -> "High"
-                        2 -> "Medium"
-                        1 -> "Low"
-                        0 -> "Ultra Low"
-                        else -> "High"
-                    }
-
-                    if(AppContext.getAdvertisementService() != null){
-                        seekBarLabel.text = newTxPowerLabel
-                        AppContext.getAdvertisementService()!!.setTxPowerLevel(newTxPowerLevel)
-                    }
-                }
-
-                override fun onStartTrackingTouch(seekBar: SeekBar) {
-                    // you can probably leave this empty
-                }
-
-                override fun onStopTrackingTouch(seekBar: SeekBar) {
-                    // you can probably leave this empty
-                }
-            })
-
-            val okBtn = dialog.findViewById(R.id.setTxPowerDialogOkButton) as TextView
-            okBtn.setOnClickListener {
-                dialog.dismiss()
-            }
-
-            dialog.show()
-        } else {
-            Toast.makeText(this, "Advertisement Service not initialized", Toast.LENGTH_SHORT)
+    fun showSetTxPowerDialog() {
+        if (AppContext.getAdvertisementService() == null) {
+            Toast.makeText(this, "Advertisement Service not initialized", Toast.LENGTH_SHORT).show()
+            return
         }
+
+        val dialogLayout = LayoutInflater.from(this).inflate(R.layout.dialog_set_tx_power, null)
+
+        val seekBar: SeekBar = dialogLayout.findViewById(R.id.setTxPowerDialogSeekbar)
+        val seekBarLabel: TextView = dialogLayout.findViewById(R.id.setTxPowerDialogTxPowerTextView)
+
+        // Set Current TxPowerLevel
+        val currentTxPowerLevel = AppContext.getAdvertisementService().getTxPowerLevel()
+        val currentProgress = when (currentTxPowerLevel) {
+            TxPowerLevel.TX_POWER_HIGH -> 3
+            TxPowerLevel.TX_POWER_MEDIUM -> 2
+            TxPowerLevel.TX_POWER_LOW -> 1
+            TxPowerLevel.TX_POWER_ULTRA_LOW -> 0
+        }
+        seekBar.progress = currentProgress
+        seekBarLabel.text = getString(currentTxPowerLevel.toStringId())
+
+        seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                val newTxPowerLevel = when (progress) {
+                    3 -> TxPowerLevel.TX_POWER_HIGH
+                    2 -> TxPowerLevel.TX_POWER_MEDIUM
+                    1 -> TxPowerLevel.TX_POWER_LOW
+                    0 -> TxPowerLevel.TX_POWER_ULTRA_LOW
+                    else -> TxPowerLevel.TX_POWER_HIGH
+                }
+                seekBarLabel.text = getString(newTxPowerLevel.toStringId())
+                AppContext.getAdvertisementService()!!.setTxPowerLevel(newTxPowerLevel)
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar) {
+                // you can probably leave this empty
+            }
+
+            override fun onStopTrackingTouch(seekBar: SeekBar) {
+                // you can probably leave this empty
+            }
+        })
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.power_dialog_title))
+            .setView(dialogLayout)
+            .setPositiveButton(getString(android.R.string.ok), null)
+            .show()
     }
 }
